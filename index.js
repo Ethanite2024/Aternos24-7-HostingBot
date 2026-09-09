@@ -317,18 +317,6 @@ app.get('/health', (req, res) => {
 
 app.get('/ping', (req, res) => res.send('pong'));
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Server] HTTP server started on port ${server.address().port}`);
-});
-
-server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-        console.error(`[Server] Port ${PORT} is already in use. Please check your Wispbyte panel configurations.`);
-    } else {
-        console.log(`[Server] HTTP server error: ${err.message}`);
-    }
-});
-
 // FIX: only one definition of formatUptime
 function formatUptime(seconds) {
   const h = Math.floor(seconds / 3600);
@@ -360,16 +348,16 @@ function startSelfPing() {
   console.log('[KeepAlive] Self-ping system started (every 10 min)');
 }
 
-startSelfPing();
-
 // ============================================================
 // MEMORY MONITORING
 // ============================================================
-setInterval(() => {
-  const mem = process.memoryUsage();
-  const heapMB = (mem.heapUsed / 1024 / 1024).toFixed(2);
-  console.log(`[Memory] Heap: ${heapMB} MB`);
-}, 5 * 60 * 1000);
+function startMemoryMonitoring() {
+  setInterval(() => {
+    const mem = process.memoryUsage();
+    const heapMB = (mem.heapUsed / 1024 / 1024).toFixed(2);
+    console.log(`[Memory] Heap: ${heapMB} MB`);
+  }, 5 * 60 * 1000);
+}
 
 // ============================================================
 // BOT CREATION WITH RECONNECTION LOGIC
@@ -566,11 +554,29 @@ function createBot() {
       }
     });
 
+    // FIX: 'error' event handler with clean error logging and 30s delay before reconnect
     bot.on('error', (err) => {
-      const msg = err.message || '';
+      const msg = err.message || 'Unknown error';
       console.log(`[Bot] Error: ${msg}`);
       botState.errors.push({ type: 'error', message: msg, time: Date.now() });
-      // Don't reconnect on error - let 'end' event handle it
+      
+      // Log full error details for debugging
+      if (err.stack) {
+        console.log(`[Bot] Stack trace: ${err.stack}`);
+      }
+      
+      // FIX: Apply a 30-second delay before attempting reconnection on error
+      if (config.utils['auto-reconnect'] && !isReconnecting) {
+        console.log('[Bot] Error detected - scheduling reconnect in 30 seconds...');
+        isReconnecting = true;
+        botState.reconnectAttempts++;
+        reconnectTimeoutId = setTimeout(() => {
+          reconnectTimeoutId = null;
+          isReconnecting = false;
+          createBot();
+        }, 30000); // Explicit 30-second delay
+      }
+      // Don't call scheduleReconnect on error alone - 'end' event is the primary trigger
     });
 
   } catch (err) {
@@ -1095,9 +1101,9 @@ process.on('uncaughtException', (err) => {
     if (isReconnecting) {
       console.log('[FATAL] isReconnecting was stuck - resetting before crash recovery');
       isReconnecting = false;
-      if (reconnectTimeout) {
-        clearTimeout(reconnectTimeout);
-        reconnectTimeout = null;
+      if (reconnectTimeoutId) {
+        clearTimeout(reconnectTimeoutId);
+        reconnectTimeoutId = null;
       }
     }
 
@@ -1113,24 +1119,75 @@ process.on('unhandledRejection', (reason) => {
 });
 
 process.on('SIGTERM', () => {
-  console.log('[System] SIGTERM received.');
+  console.log('[System] SIGTERM received - cleaning up...');
+  clearAllIntervals();
+  if (bot) {
+    try {
+      bot.removeAllListeners();
+      bot.end();
+    } catch (e) { /* ignore */ }
+  }
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   console.log('[System] Manual stop requested. Exiting...');
+  clearAllIntervals();
+  if (bot) {
+    try {
+      bot.removeAllListeners();
+      bot.end();
+    } catch (e) { /* ignore */ }
+  }
   process.exit(0);
 });
 
 // ============================================================
-// START THE BOT
+// APPLICATION STARTUP
 // ============================================================
 console.log('='.repeat(50));
 console.log('  Minecraft AFK Bot v2.5 - Bug-Fixed Edition');
 console.log('='.repeat(50));
 console.log(`Server: ${config.server.ip}:${config.server.port}`);
-console.log(`Version: ${config.server.version}`);
+console.log(`Version: ${config.server.version || 'Auto-detect'}`);
 console.log(`Auto-Reconnect: ${config.utils['auto-reconnect'] ? 'Enabled' : 'Disabled'}`);
+console.log(`Min Reconnect Delay: ${MIN_RECONNECT_DELAY / 1000}s`);
 console.log('='.repeat(50));
 
+// Start web server on Wispbyte / Render using process.env.PORT
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Server] HTTP server listening on port ${server.address().port}`);
+  console.log('[Server] Dashboard available at http://0.0.0.0:' + server.address().port);
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[Server] ERROR: Port ${PORT} is already in use. Please check your Wispbyte/Render panel configurations.`);
+    process.exit(1);
+  } else {
+    console.error(`[Server] HTTP server error: ${err.message}`);
+    process.exit(1);
+  }
+});
+
+server.on('listening', () => {
+  console.log(`[Server] Server is ready to accept connections.`);
+});
+
+// Keep the server alive - no timeouts
+server.keepAliveTimeout = 0;
+
+// Start support systems
+startSelfPing();
+startMemoryMonitoring();
+
+// Initialize the Minecraft bot
+console.log('[Bot] Starting Minecraft bot...\n');
 createBot();
+
+// Keep Node.js running by preventing premature exit
+// The server will keep the process alive through its event loop
+process.on('exit', () => {
+  console.log('[System] Application exiting');
+  clearAllIntervals();
+});
