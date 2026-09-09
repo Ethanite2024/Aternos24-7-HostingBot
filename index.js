@@ -246,7 +246,7 @@ app.get('/', (req, res) => {
             }
           }
 
-          setInterval(update, 5000);
+          setInterval(update, 300000);
           update();
         </script>
       </body>
@@ -857,7 +857,7 @@ function avoidMobs(bot) {
     } catch (e) {
       console.log('[AvoidMobs] Error:', e.message);
     }
-  }, 2000);
+  }, 15000);
 }
 
 // Combat module
@@ -961,7 +961,7 @@ function bedModule(bot, mcData) {
       isTryingToSleep = false;
       console.log('[Bed] Error:', e.message);
     }
-  }, 10000);
+  }, 60000);
 }
 
 // Chat module
