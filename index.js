@@ -383,6 +383,9 @@ let reconnectTimeoutId = null;
 let connectionTimeoutId = null;
 let isReconnecting = false;
 
+// FIX: Minimum 30-second delay to prevent instant reconnection loops
+const MIN_RECONNECT_DELAY = 30000;
+
 function clearBotTimeouts() {
   if (reconnectTimeoutId) {
     clearTimeout(reconnectTimeoutId);
@@ -423,7 +426,8 @@ function getReconnectDelay() {
   const maxDelay = config.utils['max-reconnect-delay'] || 30000;
   const delay = Math.min(baseDelay * Math.pow(2, botState.reconnectAttempts), maxDelay);
   const jitter = Math.floor(Math.random() * 2000);
-  return delay + jitter;
+  // FIX: ensure minimum 30-second delay to prevent CPU spike loops
+  return Math.max(delay + jitter, MIN_RECONNECT_DELAY);
 }
 
 function createBot() {
