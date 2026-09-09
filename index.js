@@ -12,7 +12,7 @@ const https = require('https');
 // EXPRESS SERVER - Keep Render/Aternos alive
 // ============================================================
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 
 // Bot state tracking
 let botState = {
@@ -317,18 +317,16 @@ app.get('/health', (req, res) => {
 
 app.get('/ping', (req, res) => res.send('pong'));
 
-// FIX: handle port conflict gracefully - try next port if taken
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Server] HTTP server started on port ${server.address().port} `);
+    console.log(`[Server] HTTP server started on port ${server.address().port}`);
 });
+
 server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    const fallbackPort = PORT + 1;
-    console.log(`[Server] Port ${PORT} in use - trying port ${fallbackPort} `);
-    server.listen(fallbackPort, '0.0.0.0');
-  } else {
-    console.log(`[Server] HTTP server error: ${err.message} `);
-  }
+    if (err.code === 'EADDRINUSE') {
+        console.error(`[Server] Port ${PORT} is already in use. Please check your Wispbyte panel configurations.`);
+    } else {
+        console.log(`[Server] HTTP server error: ${err.message}`);
+    }
 });
 
 // FIX: only one definition of formatUptime
